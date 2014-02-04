@@ -1,0 +1,9 @@
+Compile kernel packages with command
+
+fakeroot make-kpkg --append-to-version -fullrt-686 -j 5 --revision '<revision>' --initrd binary
+
+where revision='<linux-version>-rt<patchset-num>-<local-revision>'
+
+e.g.
+
+fakeroot make-kpkg --append-to-version -fullrt-686 -j 5 --revision '3.10.22-rt19-1' --initrd binary
