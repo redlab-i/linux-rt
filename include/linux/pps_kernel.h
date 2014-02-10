@@ -73,7 +73,7 @@ struct pps_device {
 	struct cdev cdev;
 	struct device *dev;
 	struct fasync_struct *async_queue;	/* fasync method */
-	spinlock_t lock;
+	raw_spinlock_t lock;
 };
 
 /*
