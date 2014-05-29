@@ -45,7 +45,8 @@ MODULE_SUPPORTED_DEVICE("Adlink PCI-7841/cPCI-7841, "
 			"esd CAN-PCI/PMC/266, "
 			"esd CAN-PCIe/2000, "
 			"Connect Tech Inc. CANpro/104-Plus Opto (CRG001), "
-			"IXXAT PC-I 04/PCI")
+			"IXXAT PC-I 04/PCI, "
+			"ELCUS Electronic Co. CAN-200PCI")
 MODULE_LICENSE("GPL v2");
 
 #define PLX_PCI_MAX_CHAN 2
@@ -134,6 +135,9 @@ struct plx_pci_card {
 
 #define CTI_PCI_VENDOR_ID		0x12c4
 #define CTI_PCI_DEVICE_ID_CRG001	0x0900
+
+#define ELCUS_PCI_VENDOR_ID		0xe1c5
+#define ELCUS_PCI_DEVICE_ID_200PCI	0x0301
 
 static void plx_pci_reset_common(struct pci_dev *pdev);
 static void plx_pci_reset_marathon(struct pci_dev *pdev);
@@ -234,6 +238,14 @@ static struct plx_pci_card_info plx_pci_card_info_cti = {
 	/* based on PLX9030 */
 };
 
+static struct plx_pci_card_info plx_pci_card_info_elcus_200pci = {
+	"ELCUS Electronic Co. CAN-200PCI", 2,
+	PLX_PCI_CAN_CLOCK, PLX_PCI_OCR, PLX_PCI_CDR,
+	{1, 0x00, 0x00}, { {2, 0x000, 0x80}, {3, 0x000, 0x80} },
+	&plx_pci_reset_common
+	/* based on PLX9030 */
+};
+
 static DEFINE_PCI_DEVICE_TABLE(plx_pci_tbl) = {
 	{
 		/* Adlink PCI-7841/cPCI-7841 */
@@ -318,6 +330,13 @@ static DEFINE_PCI_DEVICE_TABLE(plx_pci_tbl) = {
 		CTI_PCI_VENDOR_ID, CTI_PCI_DEVICE_ID_CRG001,
 		0, 0,
 		(kernel_ulong_t)&plx_pci_card_info_cti
+	},
+	{
+		/* ELCUS Electronic Co. CAN-200PCI card */
+		PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9030,
+		ELCUS_PCI_VENDOR_ID, ELCUS_PCI_DEVICE_ID_200PCI,
+		0, 0,
+		(kernel_ulong_t)&plx_pci_card_info_elcus_200pci
 	},
 	{ 0,}
 };
