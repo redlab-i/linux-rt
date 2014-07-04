@@ -870,6 +870,11 @@ static inline struct pps_normtime pps_normalize_ts(struct timespec64 ts)
 	return norm;
 }
 
+/*
+* Various phase filters for use in hardpps_update_phase(). All of them get
+* jitter as well.
+*/
+
 /* get phase sample index, previously added to the ring buffer */
 static inline unsigned pps_prev_fltind(unsigned pos)
 {
@@ -882,17 +887,72 @@ static inline unsigned pps_next_fltind(unsigned pos)
 	return (pos + 1) % PPS_FILTER_SIZE;
 }
 
-/* get current phase correction and jitter */
-static inline long pps_phase_filter_get(long *jitter)
+/* simple phase filter: gets the last added phase correction sample
+ */
+static inline long pps_phase_filter_last(long *jitter)
 {
 	unsigned prev = pps_prev_fltind(pps_ph_flt_pos);
 	*jitter = abs(pps_ph_flt[pps_ph_flt_pos] - pps_ph_flt[prev]);
 
-	/* TODO: test various filters */
 	return pps_ph_flt[pps_ph_flt_pos];
 }
 
-/* add the sample to the phase filter */
+/* smart phase filter: gets minimum absoulte value from the last samples
+*/
+static inline long pps_phase_filter_minval(long *jitter)
+{
+	unsigned i;
+	long res = LONG_MAX;
+	unsigned prev = pps_prev_fltind(pps_ph_flt_pos);
+
+	for (i = 0; i < PPS_FILTER_SIZE; i++)
+		res = min(res, abs(pps_ph_flt[i]));
+	res = pps_ph_flt[pps_ph_flt_pos] > 0 ? res : -res;
+	*jitter = abs(pps_ph_flt[prev] - pps_ph_flt[pps_ph_flt_pos]);
+	return res;
+}
+
+/* filter returning average value of the last correction samples
+*/
+static inline long pps_phase_filter_average(long *jitter)
+{
+	unsigned i;
+	long res = 0;
+	unsigned prev = pps_prev_fltind(pps_ph_flt_pos);
+
+	for (i = 0; i < PPS_FILTER_SIZE; i++)
+		res += pps_ph_flt[i];
+	*jitter = abs(pps_ph_flt[prev] - pps_ph_flt[pps_ph_flt_pos]);
+	res = abs(res / PPS_FILTER_SIZE);
+	return pps_ph_flt[pps_ph_flt_pos] > 0 ? res : -res;
+}
+
+/* filter returning median value among last phase correction samples
+*/
+static long pps_phase_filter_median(long *jitter)
+{
+	unsigned i, j;
+	unsigned prev = pps_prev_fltind(pps_ph_flt_pos);
+	static long pps_ph_srt[PPS_FILTER_SIZE];
+	long res;
+
+	/* Perform simpliest bubble sort and get the median. Since
+	 * PPS_FILTER_SIZE if rather small, O(n * n) should never be an issue.
+	 */
+	memcpy(pps_ph_srt, pps_ph_flt, PPS_FILTER_SIZE * sizeof(long));
+	for (i = 0; i < PPS_FILTER_SIZE; i++)
+		for (j = PPS_FILTER_SIZE - 1; j > i; j--)
+			if (pps_ph_srt[j] < pps_ph_srt[j - 1])
+				swap(pps_ph_srt[j], pps_ph_srt[j - 1]);
+
+	*jitter = abs(pps_ph_flt[prev] - pps_ph_flt[pps_ph_flt_pos]);
+	i = PPS_FILTER_SIZE / 2;
+	res = abs((pps_ph_srt[i] + pps_ph_srt[PPS_FILTER_SIZE - i - 1]) / 2);
+	return pps_ph_flt[pps_ph_flt_pos] > 0 ? res : -res;
+}
+
+/* add the sample to the phase filter
+*/
 static inline void pps_phase_filter_add(long err)
 {
 	pps_ph_flt_pos = pps_next_fltind(pps_ph_flt_pos);
@@ -999,7 +1059,7 @@ static void hardpps_update_phase(long error)
 
 	/* add the sample to the phase filter */
 	pps_phase_filter_add(correction);
-	correction = pps_phase_filter_get(&jitter);
+	correction = pps_phase_filter_last(&jitter);
 
 	/* Nominal jitter is due to PPS signal noise. If it exceeds the
 	 * threshold, the sample is discarded; otherwise, if so enabled,
