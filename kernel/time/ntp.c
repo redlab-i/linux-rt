@@ -870,6 +870,21 @@ static inline void pps_phase_filter_add(long err)
 	pps_tf[pps_tf_pos] = err;
 }
 
+/* get smart value from the phase filter */
+static inline long pps_phase_filter_smart(long *jitter)
+{
+	unsigned i;
+	long res = LONG_MAX;
+	unsigned prev = (pps_tf_pos + PPS_FILTER_SIZE - 1) % PPS_FILTER_SIZE;
+	for (i = 0; i < PPS_FILTER_SIZE; i++) {
+		res = min(res, abs(pps_tf[i]));
+	}
+
+	res = pps_tf[prev] > 0 ? res : -res;
+	*jitter = abs(pps_tf[prev] - pps_tf[pps_tf_pos]);
+	return res;
+}
+
 /* decrease frequency calibration interval length.
  * It is halved after four consecutive unstable intervals.
  */
@@ -967,7 +982,7 @@ static void hardpps_update_phase(long error)
 
 	/* add the sample to the median filter */
 	pps_phase_filter_add(correction);
-	correction = pps_phase_filter_get(&jitter);
+	correction = pps_phase_filter_smart(&jitter);
 
 	/* Nominal jitter is due to PPS signal noise. If it exceeds the
 	 * threshold, the sample is discarded; otherwise, if so enabled,
