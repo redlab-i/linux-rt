@@ -69,6 +69,7 @@ static void parport_irq(void *handle)
 	struct pps_event_time ts_assert, ts_clear;
 	struct pps_client_pp *dev = handle;
 	struct parport *port = dev->pardev->port;
+	static struct pps_event_time prev;
 	unsigned int i;
 	unsigned long flags;
 
@@ -95,9 +96,11 @@ static void parport_irq(void *handle)
 	/* check the signal (no signal means the pulse is lost this time) */
 	if (!signal_is_set(port)) {
 		local_irq_restore(flags);
-		dev_err(dev->pps->dev, "lost the signal\n");
+		if ((prev.ts_real.tv_sec-ts_assert.ts_real.tv_sec)*NSEC_PER_SEC + prev.ts_real.tv_nsec-ts_assert.ts_real.tv_nsec > (NSEC_PER_SEC / 2))
+			dev_err(dev->pps->dev, "lost the signal\n");
 		goto out_none;
 	}
+	prev = ts_assert;
 
 	/* poll the port until the signal is unset */
 	for (i = dev->cw; i; i--)
