@@ -36,8 +36,8 @@
 
 #define DRVDESC "parallel port PPS signal generator"
 
-#define SIGNAL		0
-#define NO_SIGNAL	PARPORT_CONTROL_STROBE
+#define SIGNAL		(signal_high?PARPORT_CONTROL_STROBE:0)
+#define NO_SIGNAL	(signal_high?0:PARPORT_CONTROL_STROBE)
 
 /* module parameters */
 
@@ -48,6 +48,10 @@ MODULE_PARM_DESC(delay,
 	"Delay between setting and dropping the signal (ns)");
 module_param_named(delay, send_delay, uint, 0);
 
+static unsigned int signal_high = 0;
+MODULE_PARM_DESC(signal_high,
+	"Signal with low level (0 - default) or with high level (1).");
+module_param(signal_high, uint, 0);
 
 #define SAFETY_INTERVAL	3000	/* set the hrtimer earlier for safety (ns) */
 
