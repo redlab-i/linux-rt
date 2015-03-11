@@ -862,7 +862,7 @@ static inline void pps_inc_freq_interval(void)
  */
 static long hardpps_update_freq(struct pps_normtime freq_norm)
 {
-	long delta, delta_mod;
+	long delta;
 	s64 ftemp;
 
 	/* check if the frequency interval was too long */
@@ -883,7 +883,7 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 			freq_norm.sec);
 	delta = shift_right(ftemp - pps_freq, NTP_SCALE_SHIFT);
 	pps_freq = ftemp;
-	if (delta > PPS_MAXWANDER || delta < -PPS_MAXWANDER) {
+	if (abs(delta) > PPS_MAXWANDER) {
 		pr_warning("hardpps: PPSWANDER: change=%ld\n", delta);
 		time_status |= STA_PPSWANDER;
 		pps_stbcnt++;
@@ -896,10 +896,7 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 	 * frequency changes, but is used only for performance
 	 * monitoring
 	 */
-	delta_mod = delta;
-	if (delta_mod < 0)
-		delta_mod = -delta_mod;
-	pps_stabil += (div_s64(((s64)delta_mod) <<
+	pps_stabil += (div_s64(((s64)abs(delta)) <<
 				(NTP_SCALE_SHIFT - SHIFT_USEC),
 				NSEC_PER_USEC) - pps_stabil) >> PPS_INTMIN;
 
