@@ -885,18 +885,14 @@ static inline long pps_phase_filter_smart(long *jitter)
 	return res;
 }
 
-/* decrease frequency calibration interval length.
- * It is halved after four consecutive unstable intervals.
+/* decrease (half) frequency calibration interval length.
  */
 static inline void pps_dec_freq_interval(void)
 {
-	if (--pps_intcnt <= -PPS_INTCOUNT) {
-		pps_intcnt = -PPS_INTCOUNT;
-		if (pps_shift > PPS_INTMIN) {
-			pps_shift--;
-			pps_intcnt = 0;
-		}
+	if (pps_shift > PPS_INTMIN) {
+		pps_shift--;
 	}
+	pps_intcnt = 0;
 }
 
 /* increase frequency calibration interval length.
