@@ -998,7 +998,7 @@ static void hardpps_update_phase(long error)
 	 * threshold, the sample is discarded; otherwise, if so enabled,
 	 * the time offset is updated.
 	 */
-	if (jitter > (pps_jitter << PPS_POPCORN)) {
+	if (pps_jitter && (jitter > ((long long)pps_jitter << PPS_POPCORN))) {
 		printk_deferred(KERN_WARNING
 				"hardpps: PPSJITTER: jitter=%ld, limit=%ld\n",
 				jitter, (pps_jitter << PPS_POPCORN));
