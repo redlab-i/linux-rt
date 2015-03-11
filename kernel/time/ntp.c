@@ -21,6 +21,8 @@
 #include "tick-internal.h"
 #include "ntp_internal.h"
 
+//#define PPS_DEBUG 1
+
 /*
  * NTP timekeeping variables:
  *
@@ -133,6 +135,9 @@ static inline void pps_reset_freq_interval(void)
 	pps_shift = PPS_INTMIN;
 	pps_intcnt = 0;
 	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
+#ifdef PPS_DEBUG
+	pr_warning("pps_reset_freq_interval, pps_shift=%d\n", pps_shift);
+#endif
 }
 
 /**
@@ -141,6 +146,9 @@ static inline void pps_reset_freq_interval(void)
 static inline void pps_clear(void)
 {
 	unsigned i;
+#ifdef PPS_DEBUG
+	pr_warn("hardpps: pps_clear\n");
+#endif
 	pps_reset_freq_interval();
 
 	for (i = 0; i < PPS_FILTER_SIZE; i++)
@@ -277,6 +285,9 @@ static void ntp_update_frequency(void)
 	 * Don't wait for the next second_overflow, apply
 	 * the change to the tick length immediately:
 	 */
+#ifdef PPS_DEBUG
+	pr_warning("ntp_update_frequency old_base=%lld, old_len=%lld, new_base=%lld, new_len=%lld\n", tick_length_base, tick_length, new_base, tick_length+new_base - tick_length_base);
+#endif
 	tick_length		+= new_base - tick_length_base;
 	tick_length_base	 = new_base;
 }
@@ -308,6 +319,9 @@ static void ntp_update_offset(long offset)
 	if (!(time_status & STA_NANO))
 		offset *= NSEC_PER_USEC;
 
+#ifdef PPS_DEBUG
+	pr_warning("ntp_update_offset(%ld)\n", offset);
+#endif
 	/*
 	 * Scale the phase adjustment and
 	 * clamp to the operating range.
@@ -351,6 +365,9 @@ static void ntp_update_offset(long offset)
  */
 void ntp_clear(void)
 {
+#ifdef PPS_DEBUG
+	pr_warn("ntp_clear\n");
+#endif
 	time_adjust	= 0;		/* stop active adjtime() */
 	time_status	|= STA_UNSYNC;
 	time_maxerror	= NTP_PHASE_LIMIT;
@@ -438,6 +455,9 @@ int second_overflow(unsigned long secs)
 	}
 
 	/* Compute the phase adjustment for the next second */
+#ifdef PPS_DEBUG
+	pr_warning("tick_length=%lld, delta=%lld, new=%lld, diff=%lld\n", (tick_length * NTP_INTERVAL_FREQ)>>NTP_SCALE_SHIFT, (time_offset * NTP_INTERVAL_FREQ)>>NTP_SCALE_SHIFT, ((tick_length_base+time_offset) * NTP_INTERVAL_FREQ)>>NTP_SCALE_SHIFT, ((tick_length * NTP_INTERVAL_FREQ)>>NTP_SCALE_SHIFT) - (((tick_length_base+time_offset) * NTP_INTERVAL_FREQ)>>NTP_SCALE_SHIFT));
+#endif
 	tick_length	 = tick_length_base;
 
 	delta		 = ntp_offset_chunk(time_offset);
@@ -835,6 +855,9 @@ static inline void pps_dec_freq_interval(void)
 		pps_shift--;
 	}
 	pps_intcnt = 0;
+#ifdef PPS_DEBUG
+	pr_warning("pps_dec_freq_interval, pps_shift=%d\n", pps_shift);
+#endif
 }
 
 /* increase frequency calibration interval length.
@@ -849,6 +872,9 @@ static inline void pps_inc_freq_interval(void)
 			pps_intcnt = 0;
 		}
 	}
+#ifdef PPS_DEBUG
+	pr_warning("pps_inc_freq_interval, pps_shift=%d\n", pps_shift);
+#endif
 }
 
 /* update clock frequency based on MONOTONIC_RAW clock PPS signal
@@ -882,6 +908,9 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 	ftemp = div_s64(((s64)(-freq_norm.nsec)) << NTP_SCALE_SHIFT,
 			freq_norm.sec);
 	delta = shift_right(ftemp - pps_freq, NTP_SCALE_SHIFT);
+#ifdef PPS_DEBUG
+	pr_warning("hardpps_update_freq: freq_norm={%ld, %ld}, pps_freq=%lld, new_freq=%lld, delta=%ld\n",freq_norm.sec, freq_norm.nsec, pps_freq, ftemp, delta);
+#endif
 	pps_freq = ftemp;
 	if (abs(delta) > PPS_MAXWANDER) {
 		pr_warning("hardpps: PPSWANDER: change=%ld\n", delta);
@@ -931,12 +960,17 @@ static void hardpps_update_phase(long error)
 		pps_jitcnt++;
 	} else if (time_status & STA_PPSTIME) {
 		/* correct the time using the phase offset */
+
 		time_offset = div_s64(((s64)correction) << NTP_SCALE_SHIFT,
 				NTP_INTERVAL_FREQ);
 		/* cancel running adjtime() */
 		time_adjust = 0;
 	}
 	/* update jitter */
+#ifdef PPS_DEBUG
+//	pr_warning("pps_jitter=%ld, pps_jitter_limit=%lld, jitter=%ld, new pps_jitter=%ld\n",pps_jitter, (long long)pps_jitter<< PPS_POPCORN, jitter, pps_jitter + ((jitter - pps_jitter) >> PPS_INTMIN));
+	pr_warning("error=%ld, correction=%ld\n", error, correction);
+#endif
 	pps_jitter += (jitter - pps_jitter) >> PPS_INTMIN;
 }
 
@@ -974,7 +1008,9 @@ void __hardpps(const struct timespec *phase_ts, const struct timespec *raw_ts)
 
 	/* ok, now we have a base for frequency calculation */
 	freq_norm = pps_normalize_ts(timespec_sub(*raw_ts, pps_fbase));
-
+#ifdef PPS_DEBUG
+	pr_warning("pts_norm={%ld,%ld} raw_ts.nsec=%ld freq_norm={%ld,%ld}\n", pts_norm.sec, pts_norm.nsec, raw_ts->tv_nsec, freq_norm.sec, freq_norm.nsec);
+#endif
 	/* check that the signal is in the range
 	 * [1s - MAXFREQ us, 1s + MAXFREQ us], otherwise reject it */
 	if (abs(freq_norm.nsec) > MAXFREQ * freq_norm.sec) {
