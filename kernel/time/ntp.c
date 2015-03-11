@@ -793,6 +793,21 @@ static inline void pps_phase_filter_add(long err)
 	pps_tf[pps_tf_pos] = err;
 }
 
+/* get average value from the phase filter */
+static inline long pps_phase_filter_average(long *jitter)
+{
+	unsigned i;
+	long sum = 0;
+	unsigned prev = (pps_tf_pos + PPS_FILTER_SIZE - 1) % PPS_FILTER_SIZE;
+	for (i = 0; i < PPS_FILTER_SIZE; i++) {
+		sum += pps_tf[i];
+	}
+
+	sum = sum / PPS_FILTER_SIZE;
+	*jitter = abs(pps_tf[prev] - pps_tf[pps_tf_pos]);
+	return sum;
+}
+
 /* decrease frequency calibration interval length.
  * It is halved after four consecutive unstable intervals.
  */
