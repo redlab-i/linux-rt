@@ -983,7 +983,8 @@ void __hardpps(const struct timespec *phase_ts, const struct timespec *raw_ts)
 		time_status |= STA_PPSJITTER;
 		/* restart the frequency calibration interval */
 		pps_fbase = *raw_ts;
-		pr_err("hardpps: PPSJITTER: bad pulse\n");
+		pps_dec_freq_interval();
+		pr_warning("hardpps: PPSJITTER: bad pulse, freq_norm={%ld,%ld}\n", freq_norm.sec, freq_norm.nsec);
 		return;
 	}
 
