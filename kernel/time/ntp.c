@@ -101,8 +101,11 @@ static time64_t			ntp_next_leap_sec = TIME64_MAX;
 				   intervals to decrease it */
 #define PPS_MAXWANDER	100000	/* max PPS freq wander (ns/s) */
 
+#define PPS_FILTER_SIZE	4
+
 static int pps_valid;		/* signal watchdog counter */
-static long pps_tf[3];		/* phase median filter */
+static long pps_tf[PPS_FILTER_SIZE];		/* history data for phase filter */
+static unsigned pps_tf_pos;	/* current element in filter ring */
 static long pps_jitter;		/* current jitter (ns) */
 static struct timespec64 pps_fbase; /* beginning of the last freq interval */
 static int pps_shift;		/* current interval duration (s) (shift) */
@@ -143,10 +146,13 @@ static inline void pps_reset_freq_interval(void)
  */
 static inline void pps_clear(void)
 {
+	unsigned i;
 	pps_reset_freq_interval();
-	pps_tf[0] = 0;
-	pps_tf[1] = 0;
-	pps_tf[2] = 0;
+
+	for (i = 0; i < PPS_FILTER_SIZE; i++)
+		pps_tf[i] = 0;
+
+	pps_tf_pos = 0;
 	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
 	pps_freq = 0;
 }
@@ -850,20 +856,18 @@ static inline struct pps_normtime pps_normalize_ts(struct timespec64 ts)
 /* get current phase correction and jitter */
 static inline long pps_phase_filter_get(long *jitter)
 {
-	*jitter = pps_tf[0] - pps_tf[1];
-	if (*jitter < 0)
-		*jitter = -*jitter;
+	unsigned prev = (pps_tf_pos + PPS_FILTER_SIZE - 1) % PPS_FILTER_SIZE;
+	*jitter = abs(pps_tf[pps_tf_pos] - pps_tf[prev]);
 
 	/* TODO: test various filters */
-	return pps_tf[0];
+	return pps_tf[pps_tf_pos];
 }
 
 /* add the sample to the phase filter */
 static inline void pps_phase_filter_add(long err)
 {
-	pps_tf[2] = pps_tf[1];
-	pps_tf[1] = pps_tf[0];
-	pps_tf[0] = err;
+	pps_tf_pos = (pps_tf_pos + 1) % PPS_FILTER_SIZE;
+	pps_tf[pps_tf_pos] = err;
 }
 
 /* decrease frequency calibration interval length.
