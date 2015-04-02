@@ -1023,7 +1023,7 @@ void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_t
 
 	pts_norm = pps_normalize_ts(*phase_ts);
 
-	/* clear the error bits, they will be set again if needed */
+	/* clean the error bits, they will be set again if needed */
 	time_status &= ~(STA_PPSJITTER | STA_PPSWANDER | STA_PPSERROR);
 
 	/* indicate signal presence */
