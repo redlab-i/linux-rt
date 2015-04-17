@@ -977,9 +977,7 @@ void __hardpps(const struct timespec *phase_ts, const struct timespec *raw_ts)
 
 	/* check that the signal is in the range
 	 * [1s - MAXFREQ us, 1s + MAXFREQ us], otherwise reject it */
-	if ((freq_norm.sec == 0) ||
-			(freq_norm.nsec > MAXFREQ * freq_norm.sec) ||
-			(freq_norm.nsec < -MAXFREQ * freq_norm.sec)) {
+	if (abs(freq_norm.nsec) > MAXFREQ * freq_norm.sec) {
 		time_status |= STA_PPSJITTER;
 		/* restart the frequency calibration interval */
 		pps_fbase = *raw_ts;
