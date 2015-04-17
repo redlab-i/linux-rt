@@ -139,6 +139,7 @@ static inline void pps_reset_freq_interval(void)
 	   surprisingly early */
 	pps_shift = PPS_INTMIN;
 	pps_intcnt = 0;
+	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
 }
 
 /**
@@ -153,7 +154,6 @@ static inline void pps_clear(void)
 		pps_tf[i] = 0;
 
 	pps_tf_pos = 0;
-	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
 	pps_freq = 0;
 }
 
