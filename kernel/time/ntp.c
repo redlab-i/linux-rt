@@ -139,6 +139,7 @@ static inline void pps_reset_freq_interval(void)
 	   surprisingly early */
 	pps_shift = PPS_INTMIN;
 	pps_intcnt = 0;
+	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
 }
 
 /**
@@ -156,7 +157,6 @@ static inline void pps_clear(void)
 
 	pps_ph_flt_pos = 0;
 	pps_freq_flt_pos = 0;
-	pps_fbase.tv_sec = pps_fbase.tv_nsec = 0;
 	pps_freq = 0;
 }
 
@@ -907,18 +907,13 @@ static inline void pps_freq_filter_add(long freq)
 	pps_freq_flt[pps_freq_flt_pos] = freq;
 }
 
-/* decrease frequency calibration interval length.
- * It is halved after four consecutive unstable intervals.
+/* decrease (halve) frequency calibration interval length.
  */
 static inline void pps_dec_freq_interval(void)
 {
-	if (--pps_intcnt <= -PPS_INTCOUNT) {
-		pps_intcnt = -PPS_INTCOUNT;
-		if (pps_shift > PPS_INTMIN) {
-			pps_shift--;
-			pps_intcnt = 0;
-		}
-	}
+	if (pps_shift > PPS_INTMIN)
+		pps_shift--;
+	pps_intcnt = 0;
 }
 
 /* increase frequency calibration interval length.
@@ -1076,6 +1071,7 @@ void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_t
 		time_status |= STA_PPSJITTER;
 		/* restart the frequency calibration interval */
 		pps_fbase = *raw_ts;
+		pps_dec_freq_interval();
 		printk_deferred(KERN_ERR "hardpps: PPSJITTER: bad pulse\n");
 		return;
 	}
