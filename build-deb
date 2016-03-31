@@ -1,0 +1,15 @@
+#!/bin/sh
+
+CONCURENCY=$(grep -c '^processor' /proc/cpuinfo)
+REVISION="$(git describe | sed 's/^v//')"
+
+# Hack to "refresh" status
+git diff > /dev/null
+git status > /dev/null
+
+# Check for uncommitted changes
+if git diff-index --name-only HEAD | grep -qv "^scripts/package"; then
+	REVISION=${REVISION}+
+fi
+
+fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --initrd binary
