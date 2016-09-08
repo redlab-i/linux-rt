@@ -389,6 +389,42 @@ static void plx_pci_write_reg(const struct sja1000_priv *priv, int port, u8 val)
 	iowrite8(val, priv->reg_base + port);
 }
 
+static void plx_pci_read_reg_rep(const struct sja1000_priv *priv, int reg,
+                                 u8 *buffer, size_t count)
+{
+	while (count >= 4) {
+		*(__le32 *)buffer = cpu_to_le32(ioread32(priv->reg_base + reg));
+		buffer += 4;
+		reg += 4;
+		count -= 4;
+	}
+	if (count & 2) {
+		*(__le16 *)buffer = cpu_to_le16(ioread16(priv->reg_base + reg));
+		buffer += 2;
+		reg += 2;
+	}
+	if (count & 1)
+		*buffer = ioread8(priv->reg_base + reg);
+}
+
+static void plx_pci_write_reg_rep(const struct sja1000_priv *priv, int reg,
+                                  const u8 *buffer, size_t count)
+{
+	while (count >= 4) {
+		iowrite32(le32_to_cpu(*(__le32 *)buffer), priv->reg_base + reg);
+		buffer += 4;
+		reg += 4;
+		count -= 4;
+	}
+	if (count & 2) {
+		iowrite16(le16_to_cpu(*(__le16 *)buffer), priv->reg_base + reg);
+		buffer += 2;
+		reg += 2;
+	}
+	if (count & 1)
+		iowrite8(*buffer, priv->reg_base + reg);
+}
+
 /*
  * Check if a CAN controller is present at the specified location
  * by trying to switch 'em from the Basic mode into the PeliCAN mode.
@@ -644,6 +680,8 @@ static int plx_pci_add_card(struct pci_dev *pdev,
 		priv->reg_base = addr + cm->offset;
 		priv->read_reg = plx_pci_read_reg;
 		priv->write_reg = plx_pci_write_reg;
+		priv->read_reg_rep = plx_pci_read_reg_rep;
+		priv->write_reg_rep = plx_pci_write_reg_rep;
 
 		/* Check if channel is present */
 		if (plx_pci_check_sja1000(priv)) {
