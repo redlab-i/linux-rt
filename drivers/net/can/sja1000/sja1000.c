@@ -82,6 +82,24 @@ static const struct can_bittiming_const sja1000_bittiming_const = {
 	.brp_inc = 1,
 };
 
+static void sja1000_read_reg_rep(const struct sja1000_priv *priv, int reg,
+                                 u8 *buffer, size_t count)
+{
+	int i;
+
+	for (i = 0; i < count; i++)
+		buffer[i] = priv->read_reg(priv, reg + i);
+}
+
+static void sja1000_write_reg_rep(const struct sja1000_priv *priv, int reg,
+                                  const u8 *buffer, size_t count)
+{
+	int i;
+
+	for (i = 0; i < count; i++)
+		priv->write_reg(priv, reg + i, buffer[i]);
+}
+
 static void sja1000_write_cmdreg(struct sja1000_priv *priv, u8 val)
 {
 	unsigned long flags;
@@ -288,7 +306,7 @@ static netdev_tx_t sja1000_start_xmit(struct sk_buff *skb,
 	canid_t id;
 	uint8_t dreg;
 	u8 cmd_reg_val = 0x00;
-	int i;
+	u8 id_buf[4];
 
 	if (can_dropped_invalid_skb(dev, skb))
 		return NETDEV_TX_OK;
@@ -305,19 +323,16 @@ static netdev_tx_t sja1000_start_xmit(struct sk_buff *skb,
 		fi |= SJA1000_FI_FF;
 		dreg = SJA1000_EFF_BUF;
 		priv->write_reg(priv, SJA1000_FI, fi);
-		priv->write_reg(priv, SJA1000_ID1, (id & 0x1fe00000) >> 21);
-		priv->write_reg(priv, SJA1000_ID2, (id & 0x001fe000) >> 13);
-		priv->write_reg(priv, SJA1000_ID3, (id & 0x00001fe0) >> 5);
-		priv->write_reg(priv, SJA1000_ID4, (id & 0x0000001f) << 3);
+		*(__be32 *)id_buf = cpu_to_be32(id << 3);
+		priv->write_reg_rep(priv, SJA1000_ID1, id_buf, 4);
 	} else {
 		dreg = SJA1000_SFF_BUF;
 		priv->write_reg(priv, SJA1000_FI, fi);
-		priv->write_reg(priv, SJA1000_ID1, (id & 0x000007f8) >> 3);
-		priv->write_reg(priv, SJA1000_ID2, (id & 0x00000007) << 5);
+		*(__be16 *)id_buf = cpu_to_be16(id << 5);
+		priv->write_reg_rep(priv, SJA1000_ID1, id_buf, 2);
 	}
 
-	for (i = 0; i < dlc; i++)
-		priv->write_reg(priv, dreg++, cf->data[i]);
+	priv->write_reg_rep(priv, dreg, cf->data, dlc);
 
 	can_put_echo_skb(skb, dev, 0);
 
@@ -343,7 +358,7 @@ static void sja1000_rx(struct net_device *dev)
 	uint8_t fi;
 	uint8_t dreg;
 	canid_t id;
-	int i;
+	u8 id_buf[4];
 
 	/* create zero'ed CAN frame buffer */
 	skb = alloc_can_skb(dev, &cf);
@@ -355,25 +370,21 @@ static void sja1000_rx(struct net_device *dev)
 	if (fi & SJA1000_FI_FF) {
 		/* extended frame format (EFF) */
 		dreg = SJA1000_EFF_BUF;
-		id = (priv->read_reg(priv, SJA1000_ID1) << 21)
-		    | (priv->read_reg(priv, SJA1000_ID2) << 13)
-		    | (priv->read_reg(priv, SJA1000_ID3) << 5)
-		    | (priv->read_reg(priv, SJA1000_ID4) >> 3);
+		priv->read_reg_rep(priv, SJA1000_ID1, id_buf, 4);
+		id = be32_to_cpu(*(__be32 *)id_buf) >> 3;
 		id |= CAN_EFF_FLAG;
 	} else {
 		/* standard frame format (SFF) */
 		dreg = SJA1000_SFF_BUF;
-		id = (priv->read_reg(priv, SJA1000_ID1) << 3)
-		    | (priv->read_reg(priv, SJA1000_ID2) >> 5);
+		priv->read_reg_rep(priv, SJA1000_ID1, id_buf, 2);
+		id = be16_to_cpu(*(__be16 *)id_buf) >> 5;
 	}
 
 	cf->can_dlc = get_can_dlc(fi & 0x0F);
-	if (fi & SJA1000_FI_RTR) {
+	if (fi & SJA1000_FI_RTR)
 		id |= CAN_RTR_FLAG;
-	} else {
-		for (i = 0; i < cf->can_dlc; i++)
-			cf->data[i] = priv->read_reg(priv, dreg++);
-	}
+	else
+		priv->read_reg_rep(priv, dreg, cf->data, cf->can_dlc);
 
 	cf->can_id = id;
 
@@ -639,6 +650,8 @@ struct net_device *alloc_sja1000dev(int sizeof_priv)
 				       CAN_CTRLMODE_ONE_SHOT |
 				       CAN_CTRLMODE_BERR_REPORTING |
 				       CAN_CTRLMODE_PRESUME_ACK;
+	priv->read_reg_rep = sja1000_read_reg_rep;
+	priv->write_reg_rep = sja1000_write_reg_rep;
 
 	spin_lock_init(&priv->cmdreg_lock);
 
