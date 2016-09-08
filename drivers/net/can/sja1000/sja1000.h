@@ -157,6 +157,10 @@ struct sja1000_priv {
 	/* the lower-layer is responsible for appropriate locking */
 	u8 (*read_reg) (const struct sja1000_priv *priv, int reg);
 	void (*write_reg) (const struct sja1000_priv *priv, int reg, u8 val);
+	void (*read_reg_rep) (const struct sja1000_priv *priv, int reg,
+	                      u8 *buffer, size_t count);
+	void (*write_reg_rep) (const struct sja1000_priv *priv, int reg,
+	                       const u8 *buffer, size_t count);
 	void (*pre_irq) (const struct sja1000_priv *priv);
 	void (*post_irq) (const struct sja1000_priv *priv);
 
