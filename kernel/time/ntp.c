@@ -100,6 +100,8 @@ static time64_t			ntp_next_leap_sec = TIME64_MAX;
 #define PPS_MAXWANDER	100000	/* max PPS freq wander (ns/s) */
 
 #define PPS_FILTER_SIZE 4	/* number of data samples for phase filter */
+#define PPS_CRITMETRICS 500	/* frequency metrics threshold */
+#define PPS_SIGNMAX	4	/* one-signed phase errors threshold (shift) */
 
 /* method of phase filtering, defined at boot time */
 static long (*pps_phase_filter_set)(long *);
@@ -124,7 +126,7 @@ static long pps_calcnt;		/* calibration intervals */
 static long pps_jitcnt;		/* jitter limit exceeded */
 static long pps_stbcnt;		/* stability limit exceeded */
 static long pps_errcnt;		/* calibration errors */
-
+static long pps_poscnt;		/* phase errors of the same sign */
 
 /* PPS kernel consumer compensates the whole phase error immediately.
  * Otherwise, reduce the offset by a fixed factor times the time constant.
@@ -1022,6 +1024,20 @@ static inline void pps_inc_freq_interval(void)
 	}
 }
 
+/* calculate frequency stability metrics as minimal absolute difference of
+ * current pps_freq and saved frequency offsets from filter ring
+ */
+static long pps_calc_freqmetr(void)
+{
+	unsigned i;
+	long res = LONG_MAX;
+	long freq = shift_right(pps_freq, NTP_SCALE_SHIFT);
+
+	for (i = 0; i < PPS_FILTER_SIZE; i++)
+		res = min(res, abs(pps_freq_flt[i] - freq));
+	return res;
+}
+
 /* update clock frequency based on MONOTONIC_RAW clock PPS signal
  * timestamps
  *
@@ -1031,9 +1047,9 @@ static inline void pps_inc_freq_interval(void)
  * too long, the data are discarded.
  * Returns the difference between old and new frequency values.
  */
-static long hardpps_update_freq(struct pps_normtime freq_norm)
+static long hardpps_update_freq(struct pps_normtime freq_norm, bool earl_restart)
 {
-	long delta;
+	long delta, sign_thold;
 	s64 ftemp;
 
 	/* check if the frequency interval was too long */
@@ -1047,23 +1063,36 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 		return 0;
 	}
 
-	/* here the raw frequency offset and wander (stability) is
-	 * calculated. If the wander is less than the wander threshold
-	 * the interval is increased; otherwise it is decreased.
+	/* here the raw frequency offset and wander (stability) is calculated.
+	 * If freq interval is restarted ahead of time, decrease it anyway.
+	 * Otherwise if the wander is less (greater) than the wander threshold,
+	 * interval is increased (decreased).
 	 */
 	ftemp = div_s64(((s64)(-freq_norm.nsec)) << NTP_SCALE_SHIFT,
 			freq_norm.sec);
 	delta = shift_right(ftemp - pps_freq, NTP_SCALE_SHIFT);
 	pps_freq = ftemp;
-	if (abs(delta) > PPS_MAXWANDER) {
+	sign_thold = (0x1 << pps_shift) >> PPS_SIGNMAX;
+	if (earl_restart) {
+		pps_stbcnt++;
+		pps_dec_freq_interval();
+	} else if (pps_poscnt <= sign_thold || pps_poscnt >=
+			((0x1 << pps_shift) - sign_thold)) {
 		printk_deferred(KERN_WARNING
-				"hardpps: PPSWANDER: change=%ld\n", delta);
+			"hardpps: phase corrections are of the same sign: "
+			"pps_poscnt=%ld\n", pps_poscnt);
+		pps_stbcnt++;
+		pps_dec_freq_interval();
+	} else if (abs(delta) > PPS_MAXWANDER) {
+		printk_deferred(KERN_WARNING
+			"hardpps: PPSWANDER: change=%ld\n", delta);
 		time_status |= STA_PPSWANDER;
 		pps_stbcnt++;
 		pps_dec_freq_interval();
 	} else {	/* good sample */
 		pps_inc_freq_interval();
 	}
+	pps_poscnt = 0;
 
 	/* the stability metric is calculated as the average of recent
 	 * frequency changes, but is used only for performance
@@ -1091,6 +1120,8 @@ static void hardpps_update_phase(long error)
 
 	/* add the sample to the phase filter */
 	pps_phase_filter_add(correction);
+	if (correction > 0)
+		pps_poscnt++;
 	correction = pps_phase_filter(&jitter);
 
 	/* Nominal jitter is due to PPS signal noise. If it exceeds the
@@ -1129,6 +1160,7 @@ static void hardpps_update_phase(long error)
 void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_ts)
 {
 	struct pps_normtime pts_norm, freq_norm;
+	long freqmetr;
 
 	pts_norm = pps_normalize_ts(*phase_ts);
 
@@ -1168,14 +1200,24 @@ void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_t
 		return;
 	}
 
-	/* signal is ok */
-
-	/* check if the current frequency interval is finished */
-	if (freq_norm.sec >= (1 << pps_shift)) {
+	/* Check frequency stability. Calculate frequency correction metrics. If
+	 * it is greater than corresponding threshold, apply current freq
+	 * interval, then restart and decrease it.
+	 */
+	freqmetr = pps_calc_freqmetr();
+	if (freqmetr > PPS_CRITMETRICS) {
+		/* Current frequency correction is no more valid */
+		printk_deferred(KERN_WARNING
+			"hardpps: invalid freq correction: freq metrics=%ld\n",
+			freqmetr);
 		pps_calcnt++;
-		/* restart the frequency calibration interval */
 		pps_fbase = *raw_ts;
-		hardpps_update_freq(freq_norm);
+		hardpps_update_freq(freq_norm, true);
+	} else if (freq_norm.sec >= (1 << pps_shift)) {
+		/* signal is ok, but current frequency interval is finished */
+		pps_calcnt++;
+		pps_fbase = *raw_ts;
+		hardpps_update_freq(freq_norm, false);
 	}
 
 	hardpps_update_phase(pts_norm.nsec);
