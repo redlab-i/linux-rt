@@ -17,6 +17,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/rtc.h>
+#include <linux/string.h>
 
 #include "ntp_internal.h"
 
@@ -99,6 +100,9 @@ static time64_t			ntp_next_leap_sec = TIME64_MAX;
 #define PPS_MAXWANDER	100000	/* max PPS freq wander (ns/s) */
 
 #define PPS_FILTER_SIZE 4	/* number of data samples for phase filter */
+
+/* method of phase filtering, defined at boot time */
+static long (*pps_phase_filter_set)(long *);
 
 static int pps_valid;		/* signal watchdog counter */
 static long pps_ph_flt[PPS_FILTER_SIZE]; /* history data for phase filter */
@@ -951,6 +955,34 @@ static long pps_phase_filter_median(long *jitter)
 	return pps_ph_flt[pps_ph_flt_pos] > 0 ? res : -res;
 }
 
+static int __init set_phase_filter(char *arg)
+{
+	if (!arg)
+		return -EINVAL;
+
+	if (strcmp(arg, "last") == 0)
+		pps_phase_filter_set = pps_phase_filter_last;
+	else if (strcmp(arg, "minval") == 0)
+		pps_phase_filter_set = pps_phase_filter_minval;
+	else if (strcmp(arg, "average") == 0)
+		pps_phase_filter_set = pps_phase_filter_average;
+	else if (strcmp(arg, "median") == 0)
+		pps_phase_filter_set = pps_phase_filter_median;
+	else
+		return -EINVAL; /* warning will be emited if non-zero returned */
+
+	return 0;
+}
+early_param("ntp_pps.phase_filter", set_phase_filter);
+
+static long pps_phase_filter(long *jitter)
+{
+	if (pps_phase_filter_set)
+		return pps_phase_filter_set(jitter);
+	else
+		return pps_phase_filter_minval(jitter);
+}
+
 /* add the sample to the phase filter
 */
 static inline void pps_phase_filter_add(long err)
@@ -1059,7 +1091,7 @@ static void hardpps_update_phase(long error)
 
 	/* add the sample to the phase filter */
 	pps_phase_filter_add(correction);
-	correction = pps_phase_filter_last(&jitter);
+	correction = pps_phase_filter(&jitter);
 
 	/* Nominal jitter is due to PPS signal noise. If it exceeds the
 	 * threshold, the sample is discarded; otherwise, if so enabled,
