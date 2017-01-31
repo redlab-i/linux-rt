@@ -973,6 +973,7 @@ static int __init set_phase_filter(char *arg)
 	else
 		return -EINVAL; /* warning will be emited if non-zero returned */
 
+	printk_deferred(KERN_DEBUG "ntp/pps: phase filter is set to %s\n", arg);
 	return 0;
 }
 early_param("ntp_pps.phase_filter", set_phase_filter);
@@ -989,24 +990,43 @@ static long pps_phase_filter(long *jitter)
 */
 static inline void pps_phase_filter_add(long err)
 {
+	unsigned i;
 	pps_ph_flt_pos = pps_next_fltind(pps_ph_flt_pos);
 	pps_ph_flt[pps_ph_flt_pos] = err;
+	printk(KERN_WARNING "phase ring:");
+	for (i = 0; i < PPS_FILTER_SIZE; i++) {
+		if (i == pps_ph_flt_pos)
+			printk(KERN_WARNING "->[%d]: %ld", i, pps_ph_flt[i]);
+		else
+			printk(KERN_WARNING "  [%d]: %ld", i, pps_ph_flt[i]);
+	}
 }
 
 /* add the sample to the frequency filter ring
 */
 static inline void pps_freq_filter_add(long freq)
 {
+	unsigned i;
 	pps_freq_flt_pos = pps_next_fltind(pps_freq_flt_pos);
 	pps_freq_flt[pps_freq_flt_pos] = freq;
+	printk(KERN_WARNING "freq ring:");
+	for (i = 0; i < PPS_FILTER_SIZE; i++) {
+		if (i == pps_freq_flt_pos)
+			printk(KERN_WARNING "=>[%d]: %ld", i, pps_freq_flt[i]);
+		else
+			printk(KERN_WARNING "  [%d]: %ld", i, pps_freq_flt[i]);
+	}
 }
 
 /* decrease (halve) frequency calibration interval length.
  */
 static inline void pps_dec_freq_interval(void)
 {
-	if (pps_shift > PPS_INTMIN)
+	if (pps_shift > PPS_INTMIN) {
 		pps_shift--;
+		printk(KERN_WARNING "ntp/pps: pps_shift decreased from %d to %d",
+			pps_shift + 1, pps_shift);
+	}
 	pps_intcnt = 0;
 }
 
@@ -1019,6 +1039,9 @@ static inline void pps_inc_freq_interval(void)
 		pps_intcnt = PPS_INTCOUNT;
 		if (pps_shift < PPS_INTMAX) {
 			pps_shift++;
+			printk(KERN_WARNING
+				"ntp/pps: pps_shift increased from %d to %d",
+				pps_shift - 1, pps_shift);
 			pps_intcnt = 0;
 		}
 	}
@@ -1035,6 +1058,11 @@ static long pps_calc_freqmetr(void)
 
 	for (i = 0; i < PPS_FILTER_SIZE; i++)
 		res = min(res, abs(pps_freq_flt[i] - freq));
+
+	printk(KERN_WARNING "hardpps: freq metrics = %ld", res);
+	printk(KERN_WARNING "hardpps: pps_freq = %ld", freq);
+	printk(KERN_WARNING "hardpps: time_freq = %lld",
+		shift_right(time_freq, NTP_SCALE_SHIFT));
 	return res;
 }
 
@@ -1073,7 +1101,12 @@ static long hardpps_update_freq(struct pps_normtime freq_norm, bool earl_restart
 	delta = shift_right(ftemp - pps_freq, NTP_SCALE_SHIFT);
 	pps_freq = ftemp;
 	sign_thold = (0x1 << pps_shift) >> PPS_SIGNMAX;
+	printk_deferred(KERN_DEBUG
+		"hardpps_update_freq: delta=%ld, freq_norm.sec=%lld, "
+		"freq_norm.nsec=%ld\n", delta, freq_norm.sec, freq_norm.nsec);
 	if (earl_restart) {
+		printk_deferred(KERN_WARNING
+			"hardpps: early restart of frequency interval\n");
 		pps_stbcnt++;
 		pps_dec_freq_interval();
 	} else if (pps_poscnt <= sign_thold || pps_poscnt >=
@@ -1117,12 +1150,16 @@ static void hardpps_update_phase(long error)
 {
 	long correction = -error;
 	long jitter;
+	long old_jitter;
 
 	/* add the sample to the phase filter */
 	pps_phase_filter_add(correction);
 	if (correction > 0)
 		pps_poscnt++;
 	correction = pps_phase_filter(&jitter);
+	printk(KERN_WARNING "hardpps_upd_phase: correction = %ld", correction);
+	printk(KERN_WARNING "hardpps: pps_shift = %d", pps_shift);
+	printk(KERN_WARNING "hardpps: pps_poscnt = %ld", pps_poscnt);
 
 	/* Nominal jitter is due to PPS signal noise. If it exceeds the
 	 * threshold, the sample is discarded; otherwise, if so enabled,
@@ -1142,7 +1179,10 @@ static void hardpps_update_phase(long error)
 		time_adjust = 0;
 	}
 	/* update jitter */
+	old_jitter = pps_jitter;
 	pps_jitter += shift_right(jitter - pps_jitter, PPS_JITUPD);
+	printk_deferred(KERN_DEBUG "hardpps: pps_jitter is updated from %ld to "
+		"%ld\n",old_jitter, pps_jitter);
 }
 
 /*
@@ -1215,6 +1255,8 @@ void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_t
 		hardpps_update_freq(freq_norm, true);
 	} else if (freq_norm.sec >= (1 << pps_shift)) {
 		/* signal is ok, but current frequency interval is finished */
+		printk_deferred(KERN_DEBUG
+			"hardpps: frequency interval is finished");
 		pps_calcnt++;
 		pps_fbase = *raw_ts;
 		hardpps_update_freq(freq_norm, false);
