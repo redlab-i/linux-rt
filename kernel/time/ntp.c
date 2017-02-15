@@ -156,6 +156,10 @@ static inline void pps_clear(void)
  */
 static inline void pps_dec_valid(void)
 {
+	/* Silently ignore if PPS was not turned on */
+	if (!(time_status & STA_PPSSIGNAL))
+		return;
+
 	if (pps_valid > 0)
 		pps_valid--;
 	else {
