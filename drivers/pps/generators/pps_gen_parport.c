@@ -53,6 +53,13 @@ MODULE_PARM_DESC(polarity,
 	"Signal is on the low level (0 - default) or on the high level (1).");
 module_param(polarity, uint, 0);
 
+static unsigned int failure_iterations = 10;
+MODULE_PARM_DESC(failure_iterations,
+	"Number of iterations the clock source may remain unchanged.");
+module_param(failure_iterations, uint, 0);
+
+#define MAX_GETTIME_ATTEMPTS 100000
+
 #define SAFETY_INTERVAL	3000	/* set the hrtimer earlier for safety (ns) */
 
 /* internal per port structure */
@@ -79,6 +86,7 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 	struct parport *port;
 	long lim, delta;
 	unsigned long flags;
+	unsigned int i;
 
 	/* We have to disable interrupts here. The idea is to prevent
 	 * other interrupts on the same processor to introduce random
@@ -106,8 +114,18 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 	}
 
 	/* busy loop until the time is right for an assert edge */
+	i = 0;
 	do {
 		getnstimeofday(&ts2);
+		i++;
+
+		/* Check if there are problems with clock source
+		 * and prevent hard lockups.
+		 */
+		if ((i >= failure_iterations &&
+			ts1.tv_sec  == ts2.tv_sec &&
+			ts1.tv_nsec == ts2.tv_nsec) || i > MAX_GETTIME_ATTEMPTS)
+			goto error;
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
 	/* set the signal */
@@ -116,8 +134,17 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 
 	/* busy loop until the time is right for a clear edge */
 	lim = NSEC_PER_SEC - dev->port_write_time;
+	i = 0;
 	do {
 		getnstimeofday(&ts2);
+		i++;
+
+		/* Check if there are problems with clock source
+		 * and prevent hard lockups.
+		 */
+		if (i > MAX_GETTIME_ATTEMPTS)
+			goto error;
+
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
 	/* unset the signal */
@@ -154,6 +181,11 @@ done:
 				2 * hrtimer_error)));
 
 	return HRTIMER_RESTART;
+
+error:
+	local_irq_restore(flags);
+	pr_err("Clocksource unstable or not compatible with pps_gen_parport.");
+	return HRTIMER_NORESTART;
 }
 
 /* calibrate port write time */
