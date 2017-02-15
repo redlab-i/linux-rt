@@ -96,7 +96,7 @@ static void parport_irq(void *handle)
 	if (!signal_is_set(port)) {
 		local_irq_restore(flags);
 		dev_err(dev->pps->dev, "lost the signal\n");
-		goto out_assert;
+		goto out_none;
 	}
 
 	/* poll the port until the signal is unset */
@@ -117,6 +117,9 @@ static void parport_irq(void *handle)
 		dev->cw = 0;
 		dev->cw_err = 0;
 	}
+
+out_none:
+	return;
 
 out_assert:
 	/* fire assert event */
