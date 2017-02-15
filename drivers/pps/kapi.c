@@ -226,11 +226,11 @@ void pps_event(struct pps_device *pps, struct pps_event_time *ts, int event,
 	/* Wake up if captured something */
 	if (captured) {
 		pps->last_ev++;
+		spin_unlock_irqrestore(&pps->lock, flags);
 		wake_up_interruptible_all(&pps->queue);
-
 		kill_fasync(&pps->async_queue, SIGIO, POLL_IN);
-	}
 
-	spin_unlock_irqrestore(&pps->lock, flags);
+	} else
+		spin_unlock_irqrestore(&pps->lock, flags);
 }
 EXPORT_SYMBOL(pps_event);
