@@ -900,7 +900,7 @@ static inline void pps_inc_freq_interval(void)
  */
 static long hardpps_update_freq(struct pps_normtime freq_norm)
 {
-	long delta, delta_mod;
+	long delta;
 	s64 ftemp;
 
 	/* check if the frequency interval was too long */
@@ -922,7 +922,7 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 			freq_norm.sec);
 	delta = shift_right(ftemp - pps_freq, NTP_SCALE_SHIFT);
 	pps_freq = ftemp;
-	if (delta > PPS_MAXWANDER || delta < -PPS_MAXWANDER) {
+	if (abs(delta) > PPS_MAXWANDER) {
 		printk_deferred(KERN_WARNING
 				"hardpps: PPSWANDER: change=%ld\n", delta);
 		time_status |= STA_PPSWANDER;
@@ -936,10 +936,7 @@ static long hardpps_update_freq(struct pps_normtime freq_norm)
 	 * frequency changes, but is used only for performance
 	 * monitoring
 	 */
-	delta_mod = delta;
-	if (delta_mod < 0)
-		delta_mod = -delta_mod;
-	pps_stabil += (div_s64(((s64)delta_mod) <<
+	pps_stabil += (div_s64(((s64)abs(delta)) <<
 				(NTP_SCALE_SHIFT - SHIFT_USEC),
 				NSEC_PER_USEC) - pps_stabil) >> PPS_INTMIN;
 
@@ -1020,10 +1017,8 @@ void __hardpps(const struct timespec64 *phase_ts, const struct timespec64 *raw_t
 	freq_norm = pps_normalize_ts(timespec64_sub(*raw_ts, pps_fbase));
 
 	/* check that the signal is in the range
-	 * [1s - MAXFREQ us, 1s + MAXFREQ us], otherwise reject it */
-	if ((freq_norm.sec == 0) ||
-			(freq_norm.nsec > MAXFREQ * freq_norm.sec) ||
-			(freq_norm.nsec < -MAXFREQ * freq_norm.sec)) {
+	 * [1s - MAXFREQ ns, 1s + MAXFREQ ns], otherwise reject it */
+	if (abs(freq_norm.nsec) > MAXFREQ * freq_norm.sec) {
 		time_status |= STA_PPSJITTER;
 		/* restart the frequency calibration interval */
 		pps_fbase = *raw_ts;
