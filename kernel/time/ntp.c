@@ -93,6 +93,7 @@ static time64_t			ntp_next_leap_sec = TIME64_MAX;
  */
 #define PPS_VALID	10	/* PPS signal watchdog max (s) */
 #define PPS_POPCORN	4	/* popcorn spike threshold (shift) */
+#define PPS_JITUPD	2	/* pps_jitter update factor (shift) */
 #define PPS_INTMIN	2	/* min freq interval (s) (shift) */
 #define PPS_INTMAX	8	/* max freq interval (s) (shift) */
 #define PPS_INTCOUNT	4	/* number of consecutive good intervals to
@@ -968,7 +969,7 @@ static void hardpps_update_phase(long error)
 	 * threshold, the sample is discarded; otherwise, if so enabled,
 	 * the time offset is updated.
 	 */
-	if (jitter > (pps_jitter << PPS_POPCORN)) {
+	if (pps_jitter && (jitter > ((long long)pps_jitter << PPS_POPCORN))) {
 		printk_deferred(KERN_WARNING
 				"hardpps: PPSJITTER: jitter=%ld, limit=%ld\n",
 				jitter, (pps_jitter << PPS_POPCORN));
@@ -982,7 +983,7 @@ static void hardpps_update_phase(long error)
 		time_adjust = 0;
 	}
 	/* update jitter */
-	pps_jitter += (jitter - pps_jitter) >> PPS_INTMIN;
+	pps_jitter += shift_right(jitter - pps_jitter, PPS_JITUPD);
 }
 
 /*
