@@ -58,7 +58,10 @@ MODULE_PARM_DESC(failure_iterations,
 	"Number of iterations the clock source may remain unchanged.");
 module_param(failure_iterations, uint, 0);
 
-#define MAX_GETTIME_ATTEMPTS 100000
+static unsigned int gettime_attempts = 100000;
+MODULE_PARM_DESC(gettime_attempts,
+	"Total number of possible unsuccessfull gettime attempts.");
+module_param(gettime_attempts, uint, 0);
 
 #define SAFETY_INTERVAL	3000	/* set the hrtimer earlier for safety (ns) */
 
@@ -122,10 +125,12 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 		/* Check if there are problems with clock source
 		 * and prevent hard lockups.
 		 */
-		if ((i >= failure_iterations &&
+		if (i >= failure_iterations &&
 			ts1.tv_sec  == ts2.tv_sec &&
-			ts1.tv_nsec == ts2.tv_nsec) || i > MAX_GETTIME_ATTEMPTS)
-			goto error;
+			ts1.tv_nsec == ts2.tv_nsec)
+			goto clk_chng_err;
+		if (i > gettime_attempts)
+			goto gettime_atmpt_err;
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
 	/* set the signal */
@@ -142,8 +147,8 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 		/* Check if there are problems with clock source
 		 * and prevent hard lockups.
 		 */
-		if (i > MAX_GETTIME_ATTEMPTS)
-			goto error;
+		if (i > gettime_attempts)
+			goto gettime_atmpt_err;
 
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
@@ -182,9 +187,14 @@ done:
 
 	return HRTIMER_RESTART;
 
-error:
+clk_chng_err:
 	local_irq_restore(flags);
-	pr_err("Clocksource unstable or not compatible with pps_gen_parport.");
+	pr_err("pps_gen_parport: clock is being unchanged for too long. Abort.");
+	return HRTIMER_NORESTART;
+
+gettime_atmpt_err:
+	local_irq_restore(flags);
+	pr_err("pps_gen_parport: gettime attempts threshold is exceeded. Abort.");
 	return HRTIMER_NORESTART;
 }
 
