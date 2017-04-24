@@ -734,18 +734,18 @@ static void lock_two_stripes(struct stripe_head *sh1, struct stripe_head *sh2)
 {
 	local_irq_disable();
 	if (sh1 > sh2) {
-		spin_lock(&sh2->stripe_lock);
-		spin_lock_nested(&sh1->stripe_lock, 1);
+		raw_spin_lock(&sh2->stripe_lock);
+		raw_spin_lock_nested(&sh1->stripe_lock, 1);
 	} else {
-		spin_lock(&sh1->stripe_lock);
-		spin_lock_nested(&sh2->stripe_lock, 1);
+		raw_spin_lock(&sh1->stripe_lock);
+		raw_spin_lock_nested(&sh2->stripe_lock, 1);
 	}
 }
 
 static void unlock_two_stripes(struct stripe_head *sh1, struct stripe_head *sh2)
 {
-	spin_unlock(&sh1->stripe_lock);
-	spin_unlock(&sh2->stripe_lock);
+	raw_spin_unlock(&sh1->stripe_lock);
+	raw_spin_unlock(&sh2->stripe_lock);
 	local_irq_enable();
 }
 
@@ -823,10 +823,10 @@ static void stripe_add_to_batch_list(struct r5conf *conf, struct stripe_head *sh
 		goto unlock_out;
 
 	if (head->batch_head) {
-		spin_lock(&head->batch_head->batch_lock);
+		raw_spin_lock(&head->batch_head->batch_lock);
 		/* This batch list is already running */
 		if (!stripe_can_batch(head)) {
-			spin_unlock(&head->batch_head->batch_lock);
+			raw_spin_unlock(&head->batch_head->batch_lock);
 			goto unlock_out;
 		}
 
@@ -835,15 +835,15 @@ static void stripe_add_to_batch_list(struct r5conf *conf, struct stripe_head *sh
 		 * can still add the stripe to batch list
 		 */
 		list_add(&sh->batch_list, &head->batch_list);
-		spin_unlock(&head->batch_head->batch_lock);
+		raw_spin_unlock(&head->batch_head->batch_lock);
 
 		sh->batch_head = head->batch_head;
 	} else {
 		head->batch_head = head;
 		sh->batch_head = head->batch_head;
-		spin_lock(&head->batch_lock);
+		raw_spin_lock(&head->batch_lock);
 		list_add_tail(&sh->batch_list, &head->batch_list);
-		spin_unlock(&head->batch_lock);
+		raw_spin_unlock(&head->batch_lock);
 	}
 
 	if (test_and_clear_bit(STRIPE_PREREAD_ACTIVE, &sh->state))
@@ -1230,10 +1230,10 @@ static void ops_run_biofill(struct stripe_head *sh)
 		struct r5dev *dev = &sh->dev[i];
 		if (test_bit(R5_Wantfill, &dev->flags)) {
 			struct bio *rbi;
-			spin_lock_irq(&sh->stripe_lock);
+			raw_spin_lock_irq(&sh->stripe_lock);
 			dev->read = rbi = dev->toread;
 			dev->toread = NULL;
-			spin_unlock_irq(&sh->stripe_lock);
+			raw_spin_unlock_irq(&sh->stripe_lock);
 			while (rbi && rbi->bi_iter.bi_sector <
 				dev->sector + STRIPE_SECTORS) {
 				tx = async_copy_data(0, rbi, &dev->page,
@@ -1618,13 +1618,13 @@ ops_run_biodrain(struct stripe_head *sh, struct dma_async_tx_descriptor *tx)
 
 again:
 			dev = &sh->dev[i];
-			spin_lock_irq(&sh->stripe_lock);
+			raw_spin_lock_irq(&sh->stripe_lock);
 			chosen = dev->towrite;
 			dev->towrite = NULL;
 			sh->overwrite_disks = 0;
 			BUG_ON(dev->written);
 			wbi = dev->written = chosen;
-			spin_unlock_irq(&sh->stripe_lock);
+			raw_spin_unlock_irq(&sh->stripe_lock);
 			WARN_ON(dev->page != dev->orig_page);
 
 			while (wbi && wbi->bi_iter.bi_sector <
@@ -1998,8 +1998,8 @@ static struct stripe_head *alloc_stripe(struct kmem_cache *sc, gfp_t gfp,
 
 	sh = kmem_cache_zalloc(sc, gfp);
 	if (sh) {
-		spin_lock_init(&sh->stripe_lock);
-		spin_lock_init(&sh->batch_lock);
+		raw_spin_lock_init(&sh->stripe_lock);
+		raw_spin_lock_init(&sh->batch_lock);
 		INIT_LIST_HEAD(&sh->batch_list);
 		INIT_LIST_HEAD(&sh->lru);
 		atomic_set(&sh->count, 1);
@@ -2984,7 +2984,7 @@ static int add_stripe_bio(struct stripe_head *sh, struct bio *bi, int dd_idx,
 	 * stripe. If a stripe is owned by one stripe, the stripe lock will
 	 * protect it.
 	 */
-	spin_lock_irq(&sh->stripe_lock);
+	raw_spin_lock_irq(&sh->stripe_lock);
 	/* Don't allow new IO added to stripes in batch list */
 	if (sh->batch_head)
 		goto overlap;
@@ -3044,17 +3044,17 @@ static int add_stripe_bio(struct stripe_head *sh, struct bio *bi, int dd_idx,
 		 * any more.
 		 */
 		set_bit(STRIPE_BITMAP_PENDING, &sh->state);
-		spin_unlock_irq(&sh->stripe_lock);
+		raw_spin_unlock_irq(&sh->stripe_lock);
 		bitmap_startwrite(conf->mddev->bitmap, sh->sector,
 				  STRIPE_SECTORS, 0);
-		spin_lock_irq(&sh->stripe_lock);
+		raw_spin_lock_irq(&sh->stripe_lock);
 		clear_bit(STRIPE_BITMAP_PENDING, &sh->state);
 		if (!sh->batch_head) {
 			sh->bm_seq = conf->seq_flush+1;
 			set_bit(STRIPE_BIT_DELAY, &sh->state);
 		}
 	}
-	spin_unlock_irq(&sh->stripe_lock);
+	raw_spin_unlock_irq(&sh->stripe_lock);
 
 	if (stripe_can_batch(sh))
 		stripe_add_to_batch_list(conf, sh);
@@ -3062,7 +3062,7 @@ static int add_stripe_bio(struct stripe_head *sh, struct bio *bi, int dd_idx,
 
  overlap:
 	set_bit(R5_Overlap, &sh->dev[dd_idx].flags);
-	spin_unlock_irq(&sh->stripe_lock);
+	raw_spin_unlock_irq(&sh->stripe_lock);
 	return 0;
 }
 
@@ -3114,12 +3114,12 @@ handle_failed_stripe(struct r5conf *conf, struct stripe_head *sh,
 				rdev_dec_pending(rdev, conf->mddev);
 			}
 		}
-		spin_lock_irq(&sh->stripe_lock);
+		raw_spin_lock_irq(&sh->stripe_lock);
 		/* fail all writes first */
 		bi = sh->dev[i].towrite;
 		sh->dev[i].towrite = NULL;
 		sh->overwrite_disks = 0;
-		spin_unlock_irq(&sh->stripe_lock);
+		raw_spin_unlock_irq(&sh->stripe_lock);
 		if (bi)
 			bitmap_end = 1;
 
@@ -3171,10 +3171,10 @@ handle_failed_stripe(struct r5conf *conf, struct stripe_head *sh,
 		    s->failed > conf->max_degraded &&
 		    (!test_bit(R5_Insync, &sh->dev[i].flags) ||
 		      test_bit(R5_ReadError, &sh->dev[i].flags))) {
-			spin_lock_irq(&sh->stripe_lock);
+			raw_spin_lock_irq(&sh->stripe_lock);
 			bi = sh->dev[i].toread;
 			sh->dev[i].toread = NULL;
-			spin_unlock_irq(&sh->stripe_lock);
+			raw_spin_unlock_irq(&sh->stripe_lock);
 			if (test_and_clear_bit(R5_Overlap, &sh->dev[i].flags))
 				wake_up(&conf->wait_for_overlap);
 			if (bi)
@@ -4219,9 +4219,9 @@ static int clear_batch_ready(struct stripe_head *sh)
 	struct stripe_head *tmp;
 	if (!test_and_clear_bit(STRIPE_BATCH_READY, &sh->state))
 		return (sh->batch_head && sh->batch_head != sh);
-	spin_lock(&sh->stripe_lock);
+	raw_spin_lock(&sh->stripe_lock);
 	if (!sh->batch_head) {
-		spin_unlock(&sh->stripe_lock);
+		raw_spin_unlock(&sh->stripe_lock);
 		return 0;
 	}
 
@@ -4230,14 +4230,14 @@ static int clear_batch_ready(struct stripe_head *sh)
 	 * BATCH_READY, skips it
 	 */
 	if (sh->batch_head != sh) {
-		spin_unlock(&sh->stripe_lock);
+		raw_spin_unlock(&sh->stripe_lock);
 		return 1;
 	}
-	spin_lock(&sh->batch_lock);
+	raw_spin_lock(&sh->batch_lock);
 	list_for_each_entry(tmp, &sh->batch_list, batch_list)
 		clear_bit(STRIPE_BATCH_READY, &tmp->state);
-	spin_unlock(&sh->batch_lock);
-	spin_unlock(&sh->stripe_lock);
+	raw_spin_unlock(&sh->batch_lock);
+	raw_spin_unlock(&sh->stripe_lock);
 
 	/*
 	 * BATCH_READY is cleared, no new stripes can be added.
@@ -4288,17 +4288,17 @@ static void break_stripe_batch_list(struct stripe_head *head_sh,
 			sh->dev[i].flags = head_sh->dev[i].flags &
 				(~((1 << R5_WriteError) | (1 << R5_Overlap)));
 		}
-		spin_lock_irq(&sh->stripe_lock);
+		raw_spin_lock_irq(&sh->stripe_lock);
 		sh->batch_head = NULL;
-		spin_unlock_irq(&sh->stripe_lock);
+		raw_spin_unlock_irq(&sh->stripe_lock);
 		if (handle_flags == 0 ||
 		    sh->state & handle_flags)
 			set_bit(STRIPE_HANDLE, &sh->state);
 		raid5_release_stripe(sh);
 	}
-	spin_lock_irq(&head_sh->stripe_lock);
+	raw_spin_lock_irq(&head_sh->stripe_lock);
 	head_sh->batch_head = NULL;
-	spin_unlock_irq(&head_sh->stripe_lock);
+	raw_spin_unlock_irq(&head_sh->stripe_lock);
 	for (i = 0; i < head_sh->disks; i++)
 		if (test_and_clear_bit(R5_Overlap, &head_sh->dev[i].flags))
 			do_wakeup = 1;
@@ -4335,7 +4335,7 @@ static void handle_stripe(struct stripe_head *sh)
 		break_stripe_batch_list(sh, 0);
 
 	if (test_bit(STRIPE_SYNC_REQUESTED, &sh->state) && !sh->batch_head) {
-		spin_lock(&sh->stripe_lock);
+		raw_spin_lock(&sh->stripe_lock);
 		/* Cannot process 'sync' concurrently with 'discard' */
 		if (!test_bit(STRIPE_DISCARD, &sh->state) &&
 		    test_and_clear_bit(STRIPE_SYNC_REQUESTED, &sh->state)) {
@@ -4343,7 +4343,7 @@ static void handle_stripe(struct stripe_head *sh)
 			clear_bit(STRIPE_INSYNC, &sh->state);
 			clear_bit(STRIPE_REPLACED, &sh->state);
 		}
-		spin_unlock(&sh->stripe_lock);
+		raw_spin_unlock(&sh->stripe_lock);
 	}
 	clear_bit(STRIPE_DELAYED, &sh->state);
 
@@ -5113,13 +5113,13 @@ static void make_discard_request(struct mddev *mddev, struct bio *bi)
 			goto again;
 		}
 		clear_bit(R5_Overlap, &sh->dev[sh->pd_idx].flags);
-		spin_lock_irq(&sh->stripe_lock);
+		raw_spin_lock_irq(&sh->stripe_lock);
 		for (d = 0; d < conf->raid_disks; d++) {
 			if (d == sh->pd_idx || d == sh->qd_idx)
 				continue;
 			if (sh->dev[d].towrite || sh->dev[d].toread) {
 				set_bit(R5_Overlap, &sh->dev[d].flags);
-				spin_unlock_irq(&sh->stripe_lock);
+				raw_spin_unlock_irq(&sh->stripe_lock);
 				raid5_release_stripe(sh);
 				schedule();
 				goto again;
@@ -5136,7 +5136,7 @@ static void make_discard_request(struct mddev *mddev, struct bio *bi)
 			raid5_inc_bi_active_stripes(bi);
 			sh->overwrite_disks++;
 		}
-		spin_unlock_irq(&sh->stripe_lock);
+		raw_spin_unlock_irq(&sh->stripe_lock);
 		if (conf->mddev->bitmap) {
 			for (d = 0;
 			     d < conf->raid_disks - conf->max_degraded;

@@ -216,12 +216,12 @@ struct stripe_head {
 						  */
 	enum check_states	check_state;
 	enum reconstruct_states reconstruct_state;
-	spinlock_t		stripe_lock;
+	raw_spinlock_t		stripe_lock;
 	int			cpu;
 	struct r5worker_group	*group;
 
 	struct stripe_head	*batch_head; /* protected by stripe lock */
-	spinlock_t		batch_lock; /* only header's lock is useful */
+	raw_spinlock_t		batch_lock; /* only header's lock is useful */
 	struct list_head	batch_list; /* protected by head's batch lock*/
 
 	struct r5l_io_unit	*log_io;
