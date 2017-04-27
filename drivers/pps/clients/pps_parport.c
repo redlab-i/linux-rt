@@ -171,16 +171,16 @@ static void parport_attach(struct parport *port)
 		goto err_free;
 	}
 
-	if (parport_claim_or_block(device->pardev) < 0) {
-		pr_err("couldn't claim %s\n", port->name);
-		goto err_unregister_dev;
-	}
-
 	device->pps = pps_register_source(&info,
 			PPS_CAPTUREBOTH | PPS_OFFSETASSERT | PPS_OFFSETCLEAR);
 	if (device->pps == NULL) {
 		pr_err("couldn't register PPS source\n");
-		goto err_release_dev;
+		goto err_unregister_parport;
+	}
+
+	if (parport_claim_or_block(device->pardev) < 0) {
+		pr_err("couldn't claim %s\n", port->name);
+		goto err_unregister_pps;
 	}
 
 	device->cw = clear_wait;
@@ -191,9 +191,9 @@ static void parport_attach(struct parport *port)
 
 	return;
 
-err_release_dev:
-	parport_release(device->pardev);
-err_unregister_dev:
+err_unregister_pps:
+	pps_unregister_source(device->pps);
+err_unregister_parport:
 	parport_unregister_device(device->pardev);
 err_free:
 	kfree(device);
@@ -212,8 +212,8 @@ static void parport_detach(struct parport *port)
 	device = pardev->private;
 
 	port->ops->disable_irq(port);
-	pps_unregister_source(device->pps);
 	parport_release(pardev);
+	pps_unregister_source(device->pps);
 	parport_unregister_device(pardev);
 	kfree(device);
 }
