@@ -12,4 +12,4 @@ if git diff-index --name-only HEAD | grep -qv "^scripts/package"; then
 	REVISION=${REVISION}+
 fi
 
-fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --initrd binary
+fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --initrd kernel_headers kernel_image
