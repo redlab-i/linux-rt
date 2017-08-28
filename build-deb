@@ -12,4 +12,26 @@ if git diff-index --name-only HEAD | grep -qv "^scripts/package"; then
 	REVISION=${REVISION}+
 fi
 
-fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --initrd kernel_headers kernel_image
+# Some hacks to workaround creation of source and build links
+trap "rm -rf .debian-local" EXIT
+rm -rf .debian-local
+mkdir -p .debian-local/ruleset
+cp /usr/share/kernel-package/ruleset/local-vars.mk .debian-local/ruleset
+
+cat >> .debian-local/ruleset/local-vars.mk <<EOF
+
+debian/stamp/binary/\$(i_package): remove-links
+
+remove-links: debian/stamp/install/\$(i_package)
+	rm -f debian/\$(i_package)/lib/modules/\$(KERNELRELEASE)/source
+	rm -f debian/\$(i_package)/lib/modules/\$(KERNELRELEASE)/build
+
+debian/stamp/binary/\$(h_package): mk-links
+
+mk-links: debian/stamp/install/\$(h_package)
+	mkdir -p debian/\$(h_package)/lib/modules/\$(KERNELRELEASE)
+	ln -s /usr/src/linux-headers-\$(KERNELRELEASE) debian/\$(h_package)/lib/modules/\$(KERNELRELEASE)/build
+
+EOF
+
+fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --overlay-dir=.debian-local --initrd kernel_headers kernel_image
