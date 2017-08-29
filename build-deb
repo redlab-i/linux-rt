@@ -36,3 +36,16 @@ mk-links: debian/stamp/install/\$(h_package)
 EOF
 
 fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --overlay-dir=.debian-local --initrd kernel_headers kernel_image
+
+rm -rf .debian-local; trap "" EXIT
+
+if [ -e /usr/bin/module-assistant -a -e /usr/src/nvidia-kernel.tar.xz ];then
+	NVTMP=$(mktemp -d)
+	trap "rm -rf $NVTMP" EXIT
+
+	module-assistant -t -k . -u "$NVTMP" build nvidia-kernel
+	mv "$NVTMP"/*.deb ..
+	rm -rf "$NVTMP"; trap "" EXIT
+fi
+
+exit 0
