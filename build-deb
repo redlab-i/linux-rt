@@ -1,11 +1,12 @@
 #!/bin/sh
+set -e
 
 CONCURENCY=$(grep -c '^processor' /proc/cpuinfo)
 REVISION="$(git describe | sed 's/^v//')"
 
 # Hack to "refresh" status
-git diff > /dev/null
-git status > /dev/null
+git diff > /dev/null || true
+git status > /dev/null || true
 
 # Check for uncommitted changes
 if git diff-index --name-only HEAD | grep -qv "^scripts/package"; then
