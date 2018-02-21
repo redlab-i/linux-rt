@@ -35,6 +35,11 @@ mk-links: debian/stamp/install/\$(h_package)
 
 EOF
 
+# Workaround #772681 aka #862175: headers package produces by make-kpkg contains
+# userspace headers, preventing nvidia (virtualbox and some other) dkms to build
+mkdir -p .debian-local/ruleset/targets
+grep -v "headers_install" < /usr/share/kernel-package/ruleset/targets/headers.mk > .debian-local/ruleset/targets/headers.mk
+
 fakeroot make-kpkg -j${CONCURENCY} --revision "${REVISION}-1" --overlay-dir=.debian-local --initrd kernel_headers kernel_image
 
 rm -rf .debian-local; trap "" EXIT
